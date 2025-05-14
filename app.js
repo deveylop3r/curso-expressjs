@@ -1,8 +1,14 @@
 require("dotenv").config();
 const express = require("express");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
+const bcrypt = require("bcryptjs");
+const JWT = require("jsonwebtoken");
 
 const LoggerMiddleware = require("./middlewares/logger");
+const errorHandler = require("./middlewares/errorHandler");
 const { validateUser } = require("./utils/validation");
+const authenticateToken = require("./middlewares/auth");
 
 const bodyParser = require("body-parser");
 
@@ -14,6 +20,7 @@ const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(LoggerMiddleware);
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
 
@@ -153,10 +160,6 @@ app.put("/users/:id", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
-
 app.delete("/users/:id", (req, res) => {
   const userId = parseInt(req.params.id, 10);
   fs.readFile(usersFilePath, "utf-8", (err, fileData) => {
@@ -183,6 +186,69 @@ app.delete("/users/:id", (req, res) => {
       res.status(204).send();
     });
   });
+});
+
+app.get("/error", (req, res, next) => {
+  next(new Error("Error intencional"));
+});
+
+app.get("/db-users", async (req, res) => {
+  try {
+    const users = await prisma.user.findMany();
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: "Error fetching users from DB" });
+  }
+});
+
+app.get("/protected-route", authenticateToken, (req, res) => {
+  res.send({ message: "Esta es una ruta protegida!" });
+});
+
+app.post("/register", async (req, res) => {
+  const { email, password, name } = req.body;
+  const hashedPassword = await bcrypt.hash(password, 10);
+  if (!email || !password || !name) {
+    return res.status(400).json({ error: "Faltan datos requeridos." });
+  }
+  const newUser = await prisma.user.create({
+    data: {
+      email,
+      password: hashedPassword,
+      name,
+      role: "USER",
+    },
+  });
+  res.status(201).json({ message: "Usuario creado con éxito." });
+});
+
+app.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Faltan datos requeridos." });
+  }
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    return res.status(401).json({ error: "Usuario o Email incorrecto." });
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) {
+    return res.status(401).json({ error: "Usuario o Email incorrecto." });
+  }
+  const token = JWT.sign(
+    { id: user.id, role: user.role },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "4h",
+    }
+  );
+  res.json({ token });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
 });
 /* app.post("/users", (req, res) => {
   const newUser = req.body;

@@ -7,7 +7,7 @@ const errorHandle = (error, req, res, next) => {
 
   // Registrar el error en la consola para depuración
   console.error(
-    `Hubo un error: ${new Date().toISOString()} ${statusCode} ${message}`
+    `Hubo un error: ${new Date().toISOString()} - ${statusCode} - ${message}`
   );
 
   // Si hay stack trace, también lo registramos
